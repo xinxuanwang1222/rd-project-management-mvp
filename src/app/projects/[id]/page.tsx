@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Badge, approvalTone } from "@/components/badge";
 import { AppShell } from "@/components/app-shell";
 import { requireUser } from "@/lib/auth";
@@ -19,6 +20,7 @@ import { createTaskAction, updateTaskAction } from "@/server/task-actions";
 
 export default async function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
+  if (user.role === "OWNER") redirect("/");
   const { id } = await params;
   const [project, users] = await Promise.all([
     prisma.project.findUnique({

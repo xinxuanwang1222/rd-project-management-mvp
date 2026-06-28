@@ -3,7 +3,7 @@ import type { Prisma, ProjectStatus } from "@prisma/client";
 import { Badge, approvalTone } from "@/components/badge";
 import { AppShell } from "@/components/app-shell";
 import { requireUser } from "@/lib/auth";
-import { formatDate, formatDateTime, projectApprovalLabels, projectStatusLabels } from "@/lib/labels";
+import { formatDate, formatDateTime, projectApprovalLabels, projectStatusLabels, taskStatusLabels } from "@/lib/labels";
 import { canViewProject } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 
@@ -39,8 +39,14 @@ export default async function HomePage({
       where,
       include: {
         owner: true,
-        tasks: { select: { assigneeId: true, status: true, title: true, dueDate: true }, orderBy: { updatedAt: "desc" } },
-        files: { select: { id: true } }
+        tasks: {
+          include: {
+            assignee: true,
+            files: { include: { uploadedBy: true }, orderBy: { createdAt: "desc" } }
+          },
+          orderBy: { updatedAt: "desc" }
+        },
+        files: { include: { uploadedBy: true, task: true }, orderBy: { createdAt: "desc" } }
       },
       orderBy: { updatedAt: "desc" }
     }),
@@ -56,6 +62,7 @@ export default async function HomePage({
       project.tasks.map((task) => task.assigneeId)
     )
   );
+  const isOwnerView = user.role === "OWNER";
 
   return (
     <AppShell user={user}>
@@ -122,50 +129,118 @@ export default async function HomePage({
             <button type="submit">筛选</button>
           </form>
 
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>项目</th>
-                  <th>客户/产品</th>
-                  <th>负责人</th>
-                  <th>状态</th>
-                  <th>立项</th>
-                  <th>下一步任务</th>
-                  <th>更新时间</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleProjects.map((project) => {
-                  const nextTask = project.tasks.find((task) => task.status !== "COMPLETED");
-                  return (
-                    <tr key={project.id}>
-                      <td>
-                        <Link href={`/projects/${project.id}`}>
-                          <strong>{project.name}</strong>
-                        </Link>
-                        <div className="subtle">开始：{formatDate(project.startDate)}</div>
-                      </td>
-                      <td>
-                        {project.clientName || "-"}
-                        <div className="subtle">{project.productName || "-"}</div>
-                      </td>
-                      <td>{project.owner.displayName}</td>
-                      <td>
+          {isOwnerView ? (
+            <div className="owner-project-list">
+              {visibleProjects.map((project) => (
+                <article className="owner-project-card" key={project.id}>
+                  <div className="owner-project-head">
+                    <div>
+                      <div className="inline-actions">
+                        <h2>{project.name}</h2>
                         <Badge>{projectStatusLabels[project.status]}</Badge>
-                      </td>
-                      <td>
                         <Badge tone={approvalTone(project.approvalStatus)}>{projectApprovalLabels[project.approvalStatus]}</Badge>
-                      </td>
-                      <td>{nextTask ? nextTask.title : <span className="subtle">暂无待办</span>}</td>
-                      <td>{formatDateTime(project.updatedAt)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {visibleProjects.length === 0 && <div className="empty">没有匹配的项目。</div>}
-          </div>
+                      </div>
+                      <div className="project-summary">
+                        <span>客户：{project.clientName || "未填写"}</span>
+                        <span>产品：{project.productName || "未填写"}</span>
+                        <span>负责人：{project.owner.displayName}</span>
+                        <span>开始：{formatDate(project.startDate)}</span>
+                        <span>更新：{formatDateTime(project.updatedAt)}</span>
+                      </div>
+                    </div>
+                    <div className="owner-project-counts">
+                      <Badge>{project.tasks.length} 个任务</Badge>
+                      <Badge>{project.files.length} 个文件</Badge>
+                    </div>
+                  </div>
+
+                  <div className="owner-project-grid">
+                    <div className="owner-project-section">
+                      <h3>任务信息</h3>
+                      <div className="owner-task-list">
+                        {project.tasks.map((task) => (
+                          <div className="owner-task-row" key={task.id}>
+                            <div>
+                              <strong>{task.title}</strong>
+                              {task.note && <p>{task.note}</p>}
+                            </div>
+                            <div className="owner-task-meta">
+                              <Badge>{taskStatusLabels[task.status]}</Badge>
+                              <span>{task.assignee.displayName}</span>
+                              <span>截止：{formatDate(task.dueDate)}</span>
+                            </div>
+                          </div>
+                        ))}
+                        {project.tasks.length === 0 && <div className="empty">暂无任务。</div>}
+                      </div>
+                    </div>
+
+                    <div className="owner-project-section">
+                      <h3>上传文件</h3>
+                      <div className="owner-file-list">
+                        {project.files.map((file) => (
+                          <Link className="owner-file-row" href={`/files/${file.id}/download`} key={file.id}>
+                            <strong>{file.fileName}</strong>
+                            <span>
+                              {file.uploadedBy.displayName} · {file.task ? file.task.title : "项目文件"}
+                            </span>
+                            <span>{formatDateTime(file.createdAt)}</span>
+                          </Link>
+                        ))}
+                        {project.files.length === 0 && <div className="empty">暂无上传文件。</div>}
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              ))}
+              {visibleProjects.length === 0 && <div className="empty">没有匹配的项目。</div>}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>项目</th>
+                    <th>客户/产品</th>
+                    <th>负责人</th>
+                    <th>状态</th>
+                    <th>立项</th>
+                    <th>下一步任务</th>
+                    <th>更新时间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleProjects.map((project) => {
+                    const nextTask = project.tasks.find((task) => task.status !== "COMPLETED");
+                    return (
+                      <tr key={project.id}>
+                        <td>
+                          <Link href={`/projects/${project.id}`}>
+                            <strong>{project.name}</strong>
+                          </Link>
+                          <div className="subtle">开始：{formatDate(project.startDate)}</div>
+                        </td>
+                        <td>
+                          {project.clientName || "-"}
+                          <div className="subtle">{project.productName || "-"}</div>
+                        </td>
+                        <td>{project.owner.displayName}</td>
+                        <td>
+                          <Badge>{projectStatusLabels[project.status]}</Badge>
+                        </td>
+                        <td>
+                          <Badge tone={approvalTone(project.approvalStatus)}>{projectApprovalLabels[project.approvalStatus]}</Badge>
+                        </td>
+                        <td>{nextTask ? nextTask.title : <span className="subtle">暂无待办</span>}</td>
+                        <td>{formatDateTime(project.updatedAt)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {visibleProjects.length === 0 && <div className="empty">没有匹配的项目。</div>}
+            </div>
+          )}
         </div>
       </section>
     </AppShell>
