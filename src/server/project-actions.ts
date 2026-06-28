@@ -139,8 +139,13 @@ export async function deleteProjectNoteAction(formData: FormData) {
 export async function uploadProjectFileAction(formData: FormData) {
   const user = await requireUser();
   const projectId = getString(formData, "projectId");
+  const taskId = getString(formData, "taskId") || null;
   const project = await prisma.project.findUnique({ where: { id: projectId } });
   if (!project || !canManageFile(user, project.ownerId)) redirect("/");
+  if (taskId) {
+    const task = await prisma.task.findUnique({ where: { id: taskId }, select: { projectId: true } });
+    if (!task || task.projectId !== projectId) redirect(`/projects/${projectId}`);
+  }
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) redirect(`/projects/${projectId}`);
@@ -155,6 +160,7 @@ export async function uploadProjectFileAction(formData: FormData) {
     prisma.projectFile.create({
       data: {
         projectId,
+        taskId,
         fileName: getString(formData, "fileName") || file.name,
         originalName: file.name,
         fileType: getFileType(getString(formData, "fileType")),
