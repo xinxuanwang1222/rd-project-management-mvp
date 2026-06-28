@@ -1,0 +1,208 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum BaseRole {
+  OWNER
+  SYSTEM_ADMIN
+  RD_LEAD
+  RD_MEMBER
+}
+
+enum ProjectStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SAMPLING
+  TESTING
+  COMPLETED
+  PAUSED
+}
+
+enum ProjectApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  PAUSED
+  COMPLETED
+}
+
+enum TaskApprovalStatus {
+  NONE
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ApprovalType {
+  PROJECT_INITIATION
+  TASK_COMPLETION
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum FileType {
+  DRAWING
+  BOM
+  QUOTE
+  TEST_RECORD
+  PHOTO
+  CUSTOMER_REQUIREMENT
+  OTHER
+}
+
+enum NoteType {
+  PROGRESS
+  RISK
+  DECISION
+  GENERAL
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  username           String   @unique
+  displayName        String
+  passwordHash       String
+  role               BaseRole
+  isActive           Boolean  @default(true)
+  mustChangePassword Boolean  @default(false)
+  canApproveProjects Boolean  @default(false)
+  canApproveTasks    Boolean  @default(false)
+  canManageUsers     Boolean  @default(false)
+  canManageAllProjects Boolean @default(false)
+  canManageFiles     Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  ownedProjects      Project[] @relation("ProjectOwner")
+  createdProjects    Project[] @relation("ProjectCreator")
+  uploadedFiles      ProjectFile[]
+  assignedTasks      Task[] @relation("TaskAssignee")
+  createdTasks       Task[] @relation("TaskCreator")
+  approvalSubmissions ApprovalRequest[] @relation("ApprovalSubmitter")
+  approvals          ApprovalRequest[] @relation("ApprovalApprover")
+  notes              ProjectNote[]
+}
+
+model Project {
+  id             String                @id @default(cuid())
+  name           String
+  clientName     String?
+  productName    String?
+  ownerId        String
+  status         ProjectStatus         @default(NOT_STARTED)
+  approvalStatus ProjectApprovalStatus @default(PENDING)
+  startDate      DateTime?
+  note           String?
+  createdById    String
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  owner          User                  @relation("ProjectOwner", fields: [ownerId], references: [id])
+  createdBy      User                  @relation("ProjectCreator", fields: [createdById], references: [id])
+  files          ProjectFile[]
+  tasks          Task[]
+  approvals      ApprovalRequest[]
+  notes          ProjectNote[]
+
+  @@index([ownerId])
+  @@index([approvalStatus])
+  @@index([status])
+}
+
+model ProjectFile {
+  id           String   @id @default(cuid())
+  projectId    String
+  fileName     String
+  originalName String
+  fileType     FileType
+  storagePath  String
+  mimeType     String?
+  sizeBytes    Int
+  uploadedById String
+  note         String?
+  createdAt    DateTime @default(now())
+
+  project      Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadedBy   User    @relation(fields: [uploadedById], references: [id])
+
+  @@index([projectId])
+}
+
+model Task {
+  id              String             @id @default(cuid())
+  projectId       String
+  title           String
+  assigneeId      String
+  dueDate         DateTime?
+  status          TaskStatus         @default(TODO)
+  approvalStatus  TaskApprovalStatus @default(NONE)
+  note            String?
+  createdById     String
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  project         Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee        User               @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdBy       User               @relation("TaskCreator", fields: [createdById], references: [id])
+  approvals       ApprovalRequest[]
+
+  @@index([projectId])
+  @@index([assigneeId])
+  @@index([status])
+}
+
+model ApprovalRequest {
+  id           String         @id @default(cuid())
+  type         ApprovalType
+  status       ApprovalStatus @default(PENDING)
+  projectId    String?
+  taskId       String?
+  submittedById String
+  approverId   String?
+  requestNote  String?
+  decisionNote String?
+  decidedAt    DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  project      Project?       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task         Task?          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  submittedBy  User           @relation("ApprovalSubmitter", fields: [submittedById], references: [id])
+  approver     User?          @relation("ApprovalApprover", fields: [approverId], references: [id])
+
+  @@index([status])
+  @@index([type])
+  @@index([projectId])
+  @@index([taskId])
+}
+
+model ProjectNote {
+  id        String   @id @default(cuid())
+  projectId String
+  authorId  String
+  type      NoteType @default(PROGRESS)
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author    User    @relation(fields: [authorId], references: [id])
+
+  @@index([projectId])
+  @@index([authorId])
+}
